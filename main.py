@@ -17,11 +17,12 @@ def step(u, f, h, mask):
     # Returns:
     # [N + 1; N + 1] matrix: result of the iteration
 
-    up = tf.roll(u, shift=-1, axis=0)
-    down = tf.roll(u, shift=1, axis=0)
-    left = tf.roll(u, shift=-1, axis=1)
-    right = tf.roll(u, shift=1, axis=1)
-    update = ((left + right + up + down) - h*h*f) / 4.
+
+    up = u[0:-2, 1:-1]
+    down = u[2:, 1:-1]
+    left = u[1:-1, 0:-2]
+    right = u[1:-1, 2:]
+    update = (tf.pad(left + right + up + down, ((1,1), (1,1))) - h*h*f) / 4.
 
     return update * mask + u * (1 - mask)
 
@@ -80,5 +81,6 @@ def solve(N, border_condition, heat_source, eps, device='/cpu:0'):
                 break
         print('Finished with {} iterations. Computation took {:.1f}s'.format(iteration_num, time.time() - start_time))
 
-solve(1000, constant_one, constant_zero, 1e-6)
+#solve(1000, constant_one, constant_zero, 2e-5, device='/cpu:0')
+solve(1000, constant_one, constant_zero, 2e-5, device='/gpu:0')
 #solve(200, constant_zero, sample_heat_source, 1e-7)
