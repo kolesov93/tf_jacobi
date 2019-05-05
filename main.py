@@ -17,13 +17,10 @@ def step(u, f, h, mask):
     # Returns:
     # [N + 1; N + 1] matrix: result of the iteration
 
-    #padded = tf.pad(u, [[1, 1,], [1, 1]])
-
     up = tf.roll(u, shift=-1, axis=0)
     down = tf.roll(u, shift=1, axis=0)
     left = tf.roll(u, shift=-1, axis=1)
     right = tf.roll(u, shift=1, axis=1)
-    #update = ((left + right + up + down)[1:-1, 1:-1] - h*h*f) / 4.
     update = ((left + right + up + down) - h*h*f) / 4.
 
     return update * mask + u * (1 - mask)
@@ -66,7 +63,7 @@ def solve(N, border_condition, heat_source, eps, device='/cpu:0'):
         init_op = tf.initialize_all_variables()
 
     # actual computation
-    with tf.Session(config=.tf.ConfigProto(log_device_placement=True)) as session:
+    with tf.Session(config=tf.ConfigProto(log_device_placement=True)) as session:
         print('Starting evaluation', file=sys.stderr)
         start_time = time.time()
         session.run(init_op)
