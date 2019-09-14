@@ -1,9 +1,19 @@
 #!/usr/bin/env python3
+"""Illustration code for solving heat equation with Jacobi method."""
+import argparse
 import sys
 import time
 
 import numpy as np
 import tensorflow as tf
+
+
+DEVICES = ['/cpu:0', '/gpu:0']
+FUNCTIONS = {
+    '1': lambda x, y: 1.,
+    '0': lambda x, y: 1.,
+    'sample': lambda x, y: -np.exp(-10. * ((x - 0.5)**2 + (y - 0.5)**2))
+}
 
 
 def build_iteration(u, f, h):
@@ -70,18 +80,9 @@ def build_iteration(u, f, h):
     left = u[1:-1, 0:-2]
     right = u[1:-1, 2:]
 
-    update = (tf.pad(left + right + top + bottom, ((1,1), (1,1))) - h*h*f) / 4.
+    update = (tf.pad(left + right + top + bottom, ((1, 1), (1, 1))) - h*h*f) / 4.
 
     return update * mask + u * (1 - mask)
-
-def constant_one(x, y):
-    return 1.
-
-def constant_zero(x, y):
-    return 0.
-
-def sample_heat_source(x, y):
-    return -np.exp(-10. * ((x - 0.5)**2 + (y - 0.5)**2))
 
 
 def prepare_data(N, boundary_condition_method, heat_source_method):
@@ -142,15 +143,66 @@ def run_algorithm(operations, eps):
                 print('Iteration {}: {}'.format(iteration_num, diff_value), file=sys.stderr)
             if diff_value < eps:
                 break
-        print('Finished with {} iterations. Computation took {:.1f}s'.format(iteration_num, time.time() - start_time))
+        print(
+            'Finished with {} iterations. Computation took {:.1f}s'.format(
+                iteration_num, time.time() - start_time
+            )
+        )
 
 
 def solve(N, boundary_condition_method, heat_source_method, eps, device='/cpu:0'):
+    """Build computation graph and run computations."""
     u0, f = prepare_data(N, boundary_condition_method, heat_source_method)
     operations = build_computation_graph(u0, f, device)
     run_algorithm(operations, eps)
 
 
-solve(1000, constant_one, constant_zero, 2e-5, device='/cpu:0')
-#solve(1000, constant_one, constant_zero, 2e-5, device='/gpu:0')
-#solve(200, constant_zero, sample_heat_source, 1e-7)
+def _parse_args():
+    parser = argparse.ArgumentParser(description='Solve heat problem with Jacobi algorithm')
+    parser.add_argument(
+        '--eps',
+        type=float,
+        default=2e-5,
+        help='run algorithm till norm of diffence of two subsequent iterations '
+        'doesn\'t exceed this value (default: %(default)s)'
+    )
+    parser.add_argument(
+        '--device',
+        default=DEVICES[0],
+        choices=DEVICES,
+        help='device to run operations on (default: %(default)s)'
+    )
+    parser.add_argument(
+        '--boundary-condition-method',
+        default='1',
+        choices=FUNCTIONS.keys(),
+        help='function to compute boundary condition, you can add more '
+        'in FUNCTION variable (default: %(default)s)'
+    )
+    parser.add_argument(
+        '--heat-method',
+        default='0',
+        choices=FUNCTIONS.keys(),
+        help='function to compute heat source constraint, you can add more '
+        'in FUNCTION variable (default: %(default)s)'
+    )
+    parser.add_argument(
+        'grid_size',
+        type=int,
+        help='size of grid (e.g. 1000)'
+    )
+    return parser.parse_args()
+
+
+def _main(args):
+    solve(
+        args.grid_size,
+        FUNCTIONS[args.boundary_condition_method],
+        FUNCTIONS[args.heat_method],
+        args.eps,
+        args.device
+    )
+
+
+if __name__ == '__main__':
+    _main(_parse_args())
