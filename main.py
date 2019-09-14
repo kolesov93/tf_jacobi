@@ -5,24 +5,72 @@ import time
 import numpy as np
 import tensorflow as tf
 
-def get_mask(N):
-    return tf.pad(tf.ones((N - 1, N - 1)), ((1, 1), (1, 1)))
 
-def step(u, f, h, mask):
-    # Args:
-    # u - [N + 1; N + 1] matrix (including borders)
-    # f - [N - 1; N - 1] matrix (excluding borders)
-    # h - grid size (1 / N)
-    # mask - [N + 1, N + 1] matrix computed with get_mask(N)
-    # Returns:
-    # [N + 1; N + 1] matrix: result of the iteration
+def build_iteration(u, f, h):
+    """
+    Build computation step of Jacobi method for a heat equation.
 
+    We have current approximation in u variable and return the next step approximation.
+    The solution is
+    result[i][j] = (u[i - 1][j] + u[i + 1][j] + u[i][j - 1] + u[i][j + 1] - h*h*f[i][j]) / 4
 
-    up = u[0:-2, 1:-1]
-    down = u[2:, 1:-1]
+    In order to get the best of vectorized computation we aim to use matrix operations when
+    available
+
+    The idea is to have u-variable have additional columns and rows for borders. That allows us
+    to add views (submatrices) of the u. E.g. if N = 4 we have (u - actual values, b - border):
+
+    b|bbb|b
+    -+---+-
+    b|uuu|b
+    b|uuu|b
+    b|uuu|b
+    -+---+-
+    b|bbb|b
+
+    Then we create four views (top, bottom, left, right):
+
+    .|ttt|.        .|...|.        .|...|.        .|...|.
+    -+---+-        -+---+-        -+---+-        -+---+-
+    .|ttt|.        .|...|.        l|ll.|.        .|.rr|r
+    .|ttt|.        .|bbb|.        l|ll.|.        .|.rr|r
+    .|...|.        .|bbb|.        l|ll.|.        .|.rr|r
+    -+---+-        -+---+-        -+---+-        -+---+-
+    .|...|.        .|bbb|.        .|...|.        .|...|.
+
+    This way the (u[i - 1][j] + u[i + 1][j] + u[i][j - 1] + u[i][j + 1]) becomes
+    top + bottom + left + right
+
+    In order to get N+1 x N+1 matrix as in input, we pad all top/bottom/left/right
+    with zeros. In order not to rewrite borders we mask inner values with 1, outer
+    with zeros, like:
+
+    0|000|0
+    -+---+-
+    0|111|0
+    0|111|0
+    0|111|0
+    -+---+-
+    0|000|0
+
+    Args:
+        u - [N + 1; N + 1] tf.Variable (including borders)
+        f - [N + 1; N + 1] np.array (including borders)
+        h - grid step (1 / N)
+        mask - [N + 1, N + 1] matrix computed with get_mask(N)
+    Returns:
+        [N + 1; N + 1] matrix: result of the iteration
+    """
+
+    N = f.shape[0] - 1
+    mask = tf.pad(tf.ones((N - 1, N - 1)), ((1, 1), (1, 1)))
+
+    top = u[0:-2, 1:-1]
+    bottom = u[2:, 1:-1]
     left = u[1:-1, 0:-2]
     right = u[1:-1, 2:]
-    update = (tf.pad(left + right + up + down, ((1,1), (1,1))) - h*h*f) / 4.
+
+    update = (tf.pad(left + right + top + bottom, ((1,1), (1,1))) - h*h*f) / 4.
 
     return update * mask + u * (1 - mask)
 
@@ -52,10 +100,9 @@ def solve(N, border_condition, heat_source, eps, device='/cpu:0'):
                     f[ix][iy] = heat_source(x, y)
 
         u = tf.Variable(u0)
-        mask = get_mask(N)
 
         # this is an operation to get next value of u, not the actual next value of u
-        nextu = step(u, f, h, mask)
+        nextu = build_iteration(u, f, h)
         # this is an operation to get max difference, not the actual value of max difference
         diff = tf.reduce_max(tf.abs(u - nextu))
         # this is an assignment operation
@@ -81,6 +128,6 @@ def solve(N, border_condition, heat_source, eps, device='/cpu:0'):
                 break
         print('Finished with {} iterations. Computation took {:.1f}s'.format(iteration_num, time.time() - start_time))
 
-#solve(1000, constant_one, constant_zero, 2e-5, device='/cpu:0')
-solve(1000, constant_one, constant_zero, 2e-5, device='/gpu:0')
+solve(1000, constant_one, constant_zero, 2e-5, device='/cpu:0')
+#solve(1000, constant_one, constant_zero, 2e-5, device='/gpu:0')
 #solve(200, constant_zero, sample_heat_source, 1e-7)
