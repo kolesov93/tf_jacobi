@@ -83,35 +83,51 @@ def constant_zero(x, y):
 def sample_heat_source(x, y):
     return -np.exp(-10. * ((x - 0.5)**2 + (y - 0.5)**2))
 
-def solve(N, border_condition, heat_source, eps, device='/cpu:0'):
-    # computation graph
+
+def prepare_data(N, boundary_condition_method, heat_source_method):
+    """Build data matrices: first approximation and f."""
+    u0 = np.zeros((N + 1, N + 1), dtype=np.float32)
+    f = np.zeros((N + 1, N + 1), dtype=np.float32)
+    h = 1. / N
+
+    for ix in range(N + 1):
+        x = h * ix
+        for iy in range(N + 1):
+            y = h * iy
+            if ix == 0 or iy == 0 or ix == N or iy == N:
+                u0[ix][iy] = boundary_condition_method(x, y)
+            else:
+                f[ix][iy] = heat_source_method(x, y)
+
+    return u0, f
+
+
+def build_computation_graph(u0, f, device):
+    """Build computation graph for Jacobi method.
+    Args:
+        u0, f - data matrices from prepare_data() method
+        device - device to run operations on
+    Returns
+        init_op - operation to initialize all algorithm variables
+        diff - tensor that has a norm difference between subsequent steps
+        finish_step - operation to finish the current operation
+    """
+    N = f.shape[0] - 1
+    h = 1. / N
     with tf.device(device):
-        h = 1. / N
-        u0 = np.zeros((N + 1, N + 1), dtype=np.float32)
-        f = np.zeros((N + 1, N + 1), dtype=np.float32)
-
-        for ix in range(N + 1):
-            x = h * ix
-            for iy in range(N + 1):
-                y = h * iy
-                if ix == 0 or iy == 0 or ix == N or iy == N:
-                    u0[ix][iy] = border_condition(x, y)
-                else:
-                    f[ix][iy] = heat_source(x, y)
-
         u = tf.Variable(u0)
-
-        # this is an operation to get next value of u, not the actual next value of u
         nextu = build_iteration(u, f, h)
-        # this is an operation to get max difference, not the actual value of max difference
         diff = tf.reduce_max(tf.abs(u - nextu))
-        # this is an assignment operation
         finish_step = tf.assign(u, nextu)
-
         init_op = tf.initialize_all_variables()
+    return init_op, diff, finish_step
 
-    # actual computation
-    with tf.Session(config=tf.ConfigProto(log_device_placement=True)) as session:
+
+def run_algorithm(operations, eps):
+    """Run actual computations by Jacobi method, until norm difference doesn't exceed eps."""
+    init_op, diff, finish_step = operations
+
+    with tf.Session() as session:
         print('Starting evaluation', file=sys.stderr)
         start_time = time.time()
         session.run(init_op)
@@ -127,6 +143,13 @@ def solve(N, border_condition, heat_source, eps, device='/cpu:0'):
             if diff_value < eps:
                 break
         print('Finished with {} iterations. Computation took {:.1f}s'.format(iteration_num, time.time() - start_time))
+
+
+def solve(N, boundary_condition_method, heat_source_method, eps, device='/cpu:0'):
+    u0, f = prepare_data(N, boundary_condition_method, heat_source_method)
+    operations = build_computation_graph(u0, f, device)
+    run_algorithm(operations, eps)
+
 
 solve(1000, constant_one, constant_zero, 2e-5, device='/cpu:0')
 #solve(1000, constant_one, constant_zero, 2e-5, device='/gpu:0')
